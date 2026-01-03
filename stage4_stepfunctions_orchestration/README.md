@@ -1,6 +1,3 @@
-## `stage4_stepfunctions_orchestration/README.md`
-
-
 # Stage 4: Workflow Orchestration with Step Functions
 
 ## Objective
