@@ -6,12 +6,12 @@ Read facility JSON records from S3, filter facilities with any accreditation exp
 ## Inputs
 - Bucket: healthcare-pipeline-2026
 - Prefix: raw/clean_dataset/
-- Format: NDJSON (one JSON object per line)
+- Format: JSON
 
 ## Output
 - Bucket: healthcare-pipeline-2026
 - Prefix: results/expiring_facilities/
-- Format: NDJSON
+- Format: JSON
 
 ## How to run (CloudShell)
 1. Upload this script to CloudShell
