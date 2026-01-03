@@ -1,0 +1,137 @@
+{
+  "Comment": "Stage 4: Orchestrate Athena pipeline with retries, wait, copy to prod, notify on failure",
+  "StartAt": "RunAthenaQueryLambda",
+  "QueryLanguage": "JSONPath",
+  "TimeoutSeconds": 900,
+  "States": {
+    "RunAthenaQueryLambda": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "arn:aws:lambda:us-east-2:280646578422:function:stage3_s3_athena_state_counts",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.stage3",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 6,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyFailureSNS"
+        }
+      ],
+      "Next": "WaitBeforePoll"
+    },
+    "WaitBeforePoll": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "GetAthenaQueryExecution"
+    },
+    "GetAthenaQueryExecution": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:athena:getQueryExecution",
+      "Parameters": {
+        "QueryExecutionId.$": "$.stage3.Payload.query_execution_id"
+      },
+      "ResultPath": "$.athena",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyFailureSNS"
+        }
+      ],
+      "Next": "CheckAthenaStatus"
+    },
+    "CheckAthenaStatus": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.athena.QueryExecution.Status.State",
+          "StringEquals": "SUCCEEDED",
+          "Next": "CopyResultsToProduction"
+        },
+        {
+          "Variable": "$.athena.QueryExecution.Status.State",
+          "StringEquals": "FAILED",
+          "Next": "NotifyFailureSNS"
+        },
+        {
+          "Variable": "$.athena.QueryExecution.Status.State",
+          "StringEquals": "CANCELLED",
+          "Next": "NotifyFailureSNS"
+        }
+      ],
+      "Default": "WaitBeforePoll"
+    },
+    "CopyResultsToProduction": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:s3:copyObject",
+      "Parameters": {
+        "Bucket": "healthcare-pipeline-2026",
+        "Key.$": "States.Format('production/state_counts/{}.csv', $$.Execution.Name)",
+        "CopySource.$": "States.Format('{}/{}', $.stage3.Payload.output_bucket, $.stage3.Payload.output_key)"
+      },
+      "ResultPath": "$.copy_result",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 5,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "NotifyFailureSNS"
+        }
+      ],
+      "Next": "Success"
+    },
+    "NotifyFailureSNS": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::aws-sdk:sns:publish",
+      "Parameters": {
+        "TopicArn": "arn:aws:sns:us-east-2:280646578422:healthcare-pipelines-failures",
+        "Subject": "Healthcare pipeline failed",
+        "Message.$": "States.JsonToString($)"
+      },
+      "End": true
+    },
+    "Success": {
+      "Type": "Succeed"
+    }
+  }
+}
