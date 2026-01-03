@@ -1,6 +1,3 @@
-
----
-
 ## `stage4_stepfunctions_orchestration/README.md`
 
 ```md
